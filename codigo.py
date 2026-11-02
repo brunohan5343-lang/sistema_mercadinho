@@ -6,8 +6,11 @@ import streamlit as st
 
 st.set_page_config(page_title="Sistema Mercadinho", page_icon="🛒", layout="wide")
 
-# COLE A SUA URL DO WEB APP DO APPS SCRIPT ABAIXO ENTRE AS ASPAS:
+# COLE A SUA URL REAL DO WEB APP DO APPS SCRIPT ABAIXO:
 WEB_APP_URL = "https://script.google.com/macros/s/AKfycbyeSMe78SNPOQdFlLVoIlIRSUqPdXs5kmY92XZfuCupx-Vxrkf_JouXZs883lNngcRdog/exec"
+
+# COLE A URL REAL DO SEU APP NO STREAMLIT CLOUD AQUI (ex: https://meumercado.streamlit.app):
+STREAMLIT_URL_BASE = "https://sistemamercadinho-4i2q7y6y58f8g7ksacmk7d.streamlit.app/"
 
 # Funções de comunicação com a planilha via Apps Script
 def carregar_dados(aba):
@@ -25,6 +28,49 @@ def enviar_dados(acao, aba, dados):
     except Exception as e:
         return {"sucesso": False, "erro": str(e)}
 
+# ==================== MODO CLIENTE (VIA QR CODE NA PRATELEIRA) ====================
+# Verifica se o link foi aberto escaneando um QR Code com ?produto=ID
+query_params = st.query_params
+produto_param = query_params.get("produto")
+
+if produto_param:
+    st.title("🛒 Detalhes do Produto")
+    dados_prod = carregar_dados("Produtos")
+    
+    if dados_prod and "erro" not in dados_prod[0]:
+        df_produtos = pd.DataFrame(dados_prod)
+        # Filtra o produto pelo ID correspondente
+        produto_encontrado = df_produtos[df_produtos["ID_Produto"].astype(str) == str(produto_param)]
+        
+        if not produto_encontrado.empty:
+            prod = produto_encontrado.iloc[0]
+            
+            st.header(prod.get("Nome", "Produto"))
+            
+            # Exibe imagem se houver URL cadastrada, senão exibe um banner genérico
+            url_img = prod.get("URL_Imagem")
+            if url_img and str(url_img).startswith("http"):
+                st.image(url_img, width=350)
+            else:
+                st.info("📦 Produto disponível em nossa gôndola.")
+                
+            st.markdown(f"**Descrição:** {prod.get('Descricao', 'Sem descrição.')}")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Preço Normal", f"R$ {float(prod.get('Preco_Venda', 0)):.2f}")
+            with col2:
+                st.metric("Preço Atacado (a partir de un.)", f"R$ {float(prod.get('Preco_Atacado', 0)):.2f}", f"Mínimo: {prod.get('Qtd_Minima_Atacad', 1)}")
+                
+            st.success("💡 Leve mais unidades e pague o preço de atacado diretamente no caixa do mercadinho!")
+        else:
+            st.error("Produto não encontrado ou indisponível.")
+    else:
+        st.error("Erro ao carregar os dados do produto.")
+        
+    st.stop() # Interrompe a execução para não carregar o painel administrativo na tela do cliente
+
+# ==================== PAINEL ADMINISTRATIVO (PADRÃO) ====================
 st.title("🛒 Gestão do Mercadinho - Painel Administrativo")
 menu = st.sidebar.selectbox("Menu Principal", ["📦 Produtos", "👥 Clientes", "📱 Gerador de QR Code"])
 
@@ -149,7 +195,7 @@ elif menu == "👥 Clientes":
 # ==================== ABA QR CODE ====================
 elif menu == "📱 Gerador de QR Code":
     st.subheader("Gerador de QR Code para as Prateleiras")
-    st.write("Selecione um produto cadastrado para gerar o QR code que ficará exposto na gôndola.")
+    st.write("Selecione um produto cadastrado para gerar o QR code que direcionará o cliente para a página de detalhes na gôndola.")
     
     dados_prod = carregar_dados("Produtos")
     if dados_prod and "erro" not in dados_prod[0]:
@@ -159,8 +205,10 @@ elif menu == "📱 Gerador de QR Code":
         produto_selecionado = st.selectbox("Selecione o Produto", df_produtos[produto_coluna].tolist())
         
         detalhes = df_produtos[df_produtos[produto_coluna] == produto_selecionado].iloc[0]
+        id_prod_atual = detalhes.get('ID_Produto', 'P001')
         
-        link_produto = f"https://seu-app.streamlit.app/?produto={detalhes.get('ID_Produto', 1)}"
+        # Monta o link apontando para a nuvem com o parâmetro do produto
+        link_produto = f"{STREAMLIT_URL_BASE}/?produto={id_prod_atual}"
         st.info(f"Link associado ao QR Code: `{link_produto}`")
         
         qr = qrcode.QRCode(version=1, box_size=10, border=4)
@@ -177,12 +225,12 @@ elif menu == "📱 Gerador de QR Code":
             st.image(byte_im, caption=f"QR Code - {produto_selecionado}", width=250)
         with col2:
             st.write(f"**Produto:** {produto_selecionado}")
-            st.write(f"**Preço de Venda:** R$ {detalhes.get('Preco_Venda', '0.00')}")
-            st.write(f"**Preço Atacado:** R$ {detalhes.get('Preco_Atacado', '0.00')}")
+            st.write(f"**Preço de Venda:** R$ {float(detalhes.get('Preco_Venda', 0)):.2f}")
+            st.write(f"**Preço Atacado:** R$ {float(detalhes.get('Preco_Atacado', 0)):.2f}")
             st.download_button(
                 label="Baixar Imagem do QR Code",
                 data=byte_im,
-                file_name=f"qrcode_{produto_selecionado}.png",
+                file_name=f"qrcode_{id_prod_atual}.png",
                 mime="image/png"
             )
     else:
