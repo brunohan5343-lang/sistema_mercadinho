@@ -1,0 +1,4 @@
+pandas
+qrcode
+requests
+streamlit
